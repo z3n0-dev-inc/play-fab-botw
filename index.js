@@ -3,6 +3,7 @@ require('dotenv').config();
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const fs   = require('fs');
 const path = require('path');
+const http = require('http');
 
 // Check all required env vars are set
 const REQUIRED = ['DISCORD_TOKEN', 'CLIENT_ID', 'PLAYFAB_TITLE_ID', 'PLAYFAB_SECRET_KEY'];
@@ -13,6 +14,16 @@ for (const key of REQUIRED) {
   }
 }
 
+// ─── Tiny web server so Render free tier doesn't spin down ────────────────────
+const PORT = process.env.PORT || 3000;
+http.createServer((req, res) => {
+  res.writeHead(200);
+  res.end('PlayFab Bot is running!');
+}).listen(PORT, () => {
+  console.log(`🌐 Web server listening on port ${PORT}`);
+});
+
+// ─── Discord Client ────────────────────────────────────────────────────────────
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -22,7 +33,7 @@ const client = new Client({
 
 client.commands = new Collection();
 
-// Load all command files — they all live in the same folder now
+// ─── Load command files ────────────────────────────────────────────────────────
 const commandFiles = fs.readdirSync(__dirname).filter(f =>
   f.endsWith('.js') && !['index.js', 'deploy.js', 'playfab.js', 'db.js', 'permissions.js', 'embeds.js'].includes(f)
 );
@@ -34,7 +45,7 @@ for (const file of commandFiles) {
   console.log(`  ✔ Loaded: /${cmd.data.name}`);
 }
 
-// Handle slash commands
+// ─── Handle slash commands ─────────────────────────────────────────────────────
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
@@ -49,7 +60,7 @@ client.on('interactionCreate', async (interaction) => {
     const reply = {
       embeds: [{
         color: 0xED4245,
-        title: '❌  Error',
+        title: '❌ Error',
         description: err.message || 'Something went wrong.',
         timestamp: new Date().toISOString(),
       }],
@@ -66,6 +77,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
+// ─── Ready ─────────────────────────────────────────────────────────────────────
 client.once('ready', () => {
   console.log(`\n✅ Logged in as ${client.user.tag}`);
   console.log(`   Servers: ${client.guilds.cache.size}`);
