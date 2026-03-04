@@ -14,7 +14,7 @@ for (const key of REQUIRED) {
   }
 }
 
-// ─── Tiny web server so Render free tier doesn't spin down ────────────────────
+// ─── Tiny web server so Render free tier doesn't complain about no port ───────
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
   res.writeHead(200);
@@ -23,7 +23,7 @@ http.createServer((req, res) => {
   console.log(`🌐 Web server listening on port ${PORT}`);
 });
 
-// ─── Discord Client ────────────────────────────────────────────────────────────
+// ─── Discord Bot ───────────────────────────────────────────────────────────────
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -33,7 +33,7 @@ const client = new Client({
 
 client.commands = new Collection();
 
-// ─── Load command files ────────────────────────────────────────────────────────
+// Load all command files — all in the same folder
 const commandFiles = fs.readdirSync(__dirname).filter(f =>
   f.endsWith('.js') && !['index.js', 'deploy.js', 'playfab.js', 'db.js', 'permissions.js', 'embeds.js'].includes(f)
 );
@@ -45,7 +45,7 @@ for (const file of commandFiles) {
   console.log(`  ✔ Loaded: /${cmd.data.name}`);
 }
 
-// ─── Handle slash commands ─────────────────────────────────────────────────────
+// Handle slash commands
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
@@ -60,7 +60,7 @@ client.on('interactionCreate', async (interaction) => {
     const reply = {
       embeds: [{
         color: 0xED4245,
-        title: '❌ Error',
+        title: '❌  Error',
         description: err.message || 'Something went wrong.',
         timestamp: new Date().toISOString(),
       }],
@@ -77,7 +77,6 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
-// ─── Ready ─────────────────────────────────────────────────────────────────────
 client.once('ready', () => {
   console.log(`\n✅ Logged in as ${client.user.tag}`);
   console.log(`   Servers: ${client.guilds.cache.size}`);
