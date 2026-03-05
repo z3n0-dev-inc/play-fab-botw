@@ -1,197 +1,232 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { getLink }               = require('./db');
-const { grantCosmeticItem, grantCoins, unlockAllMaps, grantOwnerStatus } = require('./playfab');
-const { successEmbed, errorEmbed } = require('./embeds');
-const { requirePermission }        = require('./permissions');
+/**
+ * grant.js — /grant command
+ *
+ * Grant any item from the ZTD_Cosmetics_v1 catalog to a player.
+ * Includes the mod_panel item — granting it gives that player the
+ * Moderator Console button in-game.
+ *
+ * Usage (Admin only):
+ *   /grant playfab_id:<ID> item:<item_id>
+ *   /grant user:@Discord   item:<item_id>
+ *
+ * Item choices are fetched live from the PlayFab catalog so the list
+ * always stays in sync with whatever you add there.
+ */
 
-// All valid cosmetic item IDs from ZTD_Cosmetics_v1
-const COSMETICS = {
-  // Characters (Owner)
-  'cosmetic_shadow_commander': { name: 'SHADOW COMMANDER', icon: '🦇', rarity: 'Owner' },
-  'cosmetic_neon_warden':      { name: 'NEON WARDEN',      icon: '🌟', rarity: 'Owner' },
-  'cosmetic_void_hunter':      { name: 'VOID HUNTER',      icon: '🕳️', rarity: 'Owner' },
-  // Badges
-  'cosmetic_gold_badge':    { name: 'GOLD SURVIVOR BADGE', icon: '🥇', rarity: 'Rare' },
-  'cosmetic_veteran_badge': { name: 'VETERAN BADGE',       icon: '🎖️', rarity: 'Legendary' },
-  // Frames
-  'cosmetic_skull_frame': { name: 'SKULL FRAME', icon: '💀', rarity: 'Uncommon' },
-  'cosmetic_fire_frame':  { name: 'FIRE FRAME',  icon: '🔥', rarity: 'Rare' },
-  // Pets
-  'cosmetic_zombie_pet': { name: 'ZOMBIE PET', icon: '🧟', rarity: 'Rare' },
-  // Effects
-  'cosmetic_blood_trail': { name: 'BLOOD TRAIL', icon: '🩸', rarity: 'Uncommon' },
-  'cosmetic_neon_trail':  { name: 'NEON TRAIL',  icon: '✨', rarity: 'Rare' },
-  // Owner tools
-  'owner_panel':  { name: 'OWNER PANEL',  icon: '👑', rarity: 'Owner' },
-  'Owner_towers': { name: 'OWNER TOWERS', icon: '🏰', rarity: 'Owner' },
+const { SlashCommandBuilder } = require('discord.js');
+const { getLink }             = require('./db');
+const {
+  grantItems,
+  getUserInventory,
+  revokeInventoryItem,
+  getPlayerProfile,
+  getCatalogItems,
+} = require('./playfab');
+const { requirePermission } = require('./permissions');
+
+const CATALOG_VERSION = 'ZTD_Cosmetics_v1';
+
+// Rarity color map for embed sidebar
+const RARITY_COLORS = {
+  owner:     0xFFD152,
+  legendary: 0xFFD152,
+  rare:      0x3DD6F5,
+  uncommon:  0x50D880,
+  common:    0x546A80,
 };
+
+function parseCustomData(raw) {
+  if (!raw) return {};
+  try { return typeof raw === 'string' ? JSON.parse(raw) : raw; }
+  catch { return {}; }
+}
+
+function rarityLabel(custom, itemClass) {
+  if (custom.rarity) return custom.rarity.toUpperCase();
+  if (itemClass === 'OwnerTool' || itemClass === 'ModeratorTool') return 'OWNER';
+  if (itemClass === 'OwnerCharacter') return 'OWNER';
+  return 'COSMETIC';
+}
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('grant')
-    .setDescription('Grant items or currency to a player [ADMIN]')
-    .addSubcommand(s =>
-      s.setName('cosmetic')
-        .setDescription('Grant a cosmetic item to a player')
-        .addStringOption(o =>
-          o.setName('item')
-            .setDescription('Choose a cosmetic to grant')
-            .setRequired(true)
-            .addChoices(
-              { name: '🦇 Shadow Commander (Owner Character)', value: 'cosmetic_shadow_commander' },
-              { name: '🌟 Neon Warden (Owner Character)',      value: 'cosmetic_neon_warden' },
-              { name: '🕳️ Void Hunter (Owner Character)',      value: 'cosmetic_void_hunter' },
-              { name: '🥇 Gold Survivor Badge',               value: 'cosmetic_gold_badge' },
-              { name: '🎖️ Veteran Badge',                     value: 'cosmetic_veteran_badge' },
-              { name: '💀 Skull Frame',                       value: 'cosmetic_skull_frame' },
-              { name: '🔥 Fire Frame',                        value: 'cosmetic_fire_frame' },
-              { name: '🧟 Zombie Pet',                        value: 'cosmetic_zombie_pet' },
-              { name: '🩸 Blood Trail Effect',                value: 'cosmetic_blood_trail' },
-              { name: '✨ Neon Trail Effect',                 value: 'cosmetic_neon_trail' },
-              { name: '👑 Owner Panel',                       value: 'owner_panel' },
-              { name: '🏰 Owner Towers Bundle',               value: 'Owner_towers' },
-            )
-        )
-        .addUserOption(o => o.setName('user').setDescription('Discord user to grant to').setRequired(false))
-        .addStringOption(o => o.setName('playfab_id').setDescription('Or grant by PlayFab ID directly').setRequired(false))
+    .setDescription('Grant a catalog cosmetic (or the Moderator Panel) to a player')
+    .addStringOption(o =>
+      o.setName('item')
+        .setDescription('Item ID to grant — use /catalog to see all items')
+        .setRequired(true)
     )
-    .addSubcommand(s =>
-      s.setName('coins')
-        .setDescription('Grant in-game coins (GD) to a player')
-        .addIntegerOption(o => o.setName('amount').setDescription('Amount of coins to add').setRequired(true).setMinValue(1).setMaxValue(999999))
-        .addUserOption(o => o.setName('user').setDescription('Discord user to grant to').setRequired(false))
-        .addStringOption(o => o.setName('playfab_id').setDescription('Or grant by PlayFab ID directly').setRequired(false))
+    .addStringOption(o =>
+      o.setName('playfab_id')
+        .setDescription('Target player\'s PlayFab ID')
+        .setRequired(false)
     )
-    .addSubcommand(s =>
-      s.setName('maps')
-        .setDescription('Unlock ALL maps for a player')
-        .addUserOption(o => o.setName('user').setDescription('Discord user').setRequired(false))
-        .addStringOption(o => o.setName('playfab_id').setDescription('Or by PlayFab ID').setRequired(false))
+    .addUserOption(o =>
+      o.setName('user')
+        .setDescription('Target Discord user (must have linked their account with /link)')
+        .setRequired(false)
     )
-    .addSubcommand(s =>
-      s.setName('owner')
-        .setDescription('Grant Owner status + panel to a player [ADMIN only]')
-        .addUserOption(o => o.setName('user').setDescription('Discord user').setRequired(false))
-        .addStringOption(o => o.setName('playfab_id').setDescription('Or by PlayFab ID').setRequired(false))
+    .addBooleanOption(o =>
+      o.setName('revoke')
+        .setDescription('Revoke (remove) this item instead of granting it')
+        .setRequired(false)
     ),
 
   async execute(interaction) {
     requirePermission(interaction, 'ADMIN');
-    await interaction.deferReply();
 
-    const sub        = interaction.options.getSubcommand();
-    const targetUser = interaction.options.getUser('user');
-    const directId   = interaction.options.getString('playfab_id');
+    await interaction.deferReply({ ephemeral: true });
 
-    // Resolve PlayFab ID
-    let playfabId, targetLabel;
+    const itemId      = interaction.options.getString('item').trim().toLowerCase();
+    const directId    = interaction.options.getString('playfab_id');
+    const targetUser  = interaction.options.getUser('user');
+    const shouldRevoke = interaction.options.getBoolean('revoke') ?? false;
+
+    // ── Resolve PlayFab ID ───────────────────────────────────────────
+    let playfabId;
     if (directId) {
-      playfabId   = directId.trim().toUpperCase();
-      targetLabel = `\`${playfabId}\``;
+      playfabId = directId.trim().toUpperCase();
     } else if (targetUser) {
       const link = getLink(targetUser.id);
       if (!link) {
-        return interaction.editReply({
-          embeds: [errorEmbed(`${targetUser.username} hasn't linked their PlayFab account.\nThey need to use **/link** first, or provide a PlayFab ID directly.`)],
-        });
+        return interaction.editReply({ embeds: [{
+          color: 0xED4245,
+          title: '❌  Not Linked',
+          description: `**${targetUser.username}** hasn't linked their PlayFab account.\nAsk them to use **/link**, or provide a \`playfab_id\` directly.`,
+        }]});
       }
-      playfabId   = link.playfabId;
-      targetLabel = `**${targetUser.username}**`;
+      playfabId = link.playfabId;
     } else {
-      return interaction.editReply({ embeds: [errorEmbed('Provide a **Discord user** or a **PlayFab ID**.')] });
+      return interaction.editReply({ embeds: [{
+        color: 0xED4245,
+        title: '❌  No Target',
+        description: 'You must provide either a `playfab_id` or a `user`.',
+      }]});
     }
 
-    // ── Grant Cosmetic ─────────────────────────────────────────
-    if (sub === 'cosmetic') {
-      const itemId  = interaction.options.getString('item');
-      const cosmetic = COSMETICS[itemId];
-
-      let result;
-      try {
-        result = await grantCosmeticItem(playfabId, itemId);
-      } catch (err) {
-        return interaction.editReply({ embeds: [errorEmbed(`Grant failed: ${err.message}`)] });
-      }
-
-      return interaction.editReply({
-        embeds: [new EmbedBuilder()
-          .setColor(0x57F287)
-          .setTitle(`${cosmetic.icon}  Cosmetic Granted!`)
-          .setDescription(`Successfully granted **${cosmetic.name}** to ${targetLabel}.\nThey'll see it next time they load the game.`)
-          .addFields(
-            { name: '🎁 Item',      value: cosmetic.name,      inline: true },
-            { name: '⭐ Rarity',    value: cosmetic.rarity,    inline: true },
-            { name: '🆔 Item ID',   value: `\`${itemId}\``,    inline: true },
-            { name: '👤 Granted by', value: interaction.user.username, inline: true },
-          )
-          .setTimestamp()],
-      });
+    // ── Validate item exists in catalog ────────────────────────────
+    let catalogItem = null;
+    try {
+      const catalog = await getCatalogItems(CATALOG_VERSION);
+      const items   = catalog.Catalog || [];
+      catalogItem   = items.find(i => i.ItemId.toLowerCase() === itemId);
+    } catch (err) {
+      return interaction.editReply({ embeds: [{
+        color: 0xED4245,
+        title: '❌  Catalog Error',
+        description: `Could not fetch catalog from PlayFab.\n**Error:** ${err.message}`,
+      }]});
     }
 
-    // ── Grant Coins ────────────────────────────────────────────
-    if (sub === 'coins') {
-      const amount = interaction.options.getInteger('amount');
-
-      let result;
-      try {
-        result = await grantCoins(playfabId, amount);
-      } catch (err) {
-        return interaction.editReply({ embeds: [errorEmbed(`Coin grant failed: ${err.message}`)] });
-      }
-
-      return interaction.editReply({
-        embeds: [new EmbedBuilder()
-          .setColor(0xF1C40F)
-          .setTitle('💰  Coins Granted!')
-          .setDescription(`Added **${amount.toLocaleString()} coins** to ${targetLabel}'s account.`)
-          .addFields(
-            { name: '💵 Previous Balance', value: result.previous.toLocaleString(), inline: true },
-            { name: '➕ Added',            value: `+${amount.toLocaleString()}`,    inline: true },
-            { name: '🏦 New Balance',      value: result.newTotal.toLocaleString(), inline: true },
-            { name: '👤 Granted by', value: interaction.user.username, inline: true },
-          )
-          .setTimestamp()],
-      });
+    if (!catalogItem) {
+      return interaction.editReply({ embeds: [{
+        color: 0xED4245,
+        title: '❌  Item Not Found',
+        description: `\`${itemId}\` does not exist in the **${CATALOG_VERSION}** catalog.\n\nUse **/catalog** to see all available items.`,
+      }]});
     }
 
-    // ── Unlock All Maps ────────────────────────────────────────
-    if (sub === 'maps') {
-      let maps;
+    const custom     = parseCustomData(catalogItem.CustomData);
+    const icon       = custom.icon || '📦';
+    const rarity     = rarityLabel(custom, catalogItem.ItemClass);
+    const embedColor = RARITY_COLORS[rarity.toLowerCase()] || RARITY_COLORS.common;
+
+    // ── Get player display name ──────────────────────────────────
+    let resolvedName = playfabId;
+    try {
+      const prof = await getPlayerProfile(playfabId);
+      resolvedName = prof?.PlayerProfile?.DisplayName || playfabId;
+    } catch { /* non-fatal */ }
+
+    // ── Grant or Revoke ──────────────────────────────────────────
+    if (!shouldRevoke) {
+
+      // Check for duplicate
       try {
-        maps = await unlockAllMaps(playfabId);
+        const inv      = await getUserInventory(playfabId);
+        const existing = (inv.Inventory || []).find(i => i.ItemId.toLowerCase() === itemId);
+        if (existing && !catalogItem.IsStackable) {
+          return interaction.editReply({ embeds: [{
+            color: 0xFEE75C,
+            title: `⚠️  Already Owned`,
+            description: `**${resolvedName}** already has **${icon} ${catalogItem.DisplayName}** in their inventory.`,
+            fields: [{ name: 'Item ID', value: `\`${catalogItem.ItemId}\``, inline: true }],
+          }]});
+        }
+      } catch { /* non-fatal — proceed with grant */ }
+
+      // Grant
+      try {
+        await grantItems(playfabId, [catalogItem.ItemId], CATALOG_VERSION);
+
+        const isModPanel   = catalogItem.ItemId === 'mod_panel';
+        const isOwnerPanel = catalogItem.ItemId === 'owner_panel';
+
+        const extraNote = isModPanel
+          ? '\n\n🛡 **This player now has the Moderator Panel** — they\'ll see the MOD button in-game after their next login.'
+          : isOwnerPanel
+          ? '\n\n👑 **This player now has the Owner Panel** — full owner console access after next login.'
+          : '';
+
+        return interaction.editReply({ embeds: [{
+          color: embedColor,
+          title: `${icon}  Item Granted`,
+          description: `**${icon} ${catalogItem.DisplayName}** → **${resolvedName}** (\`${playfabId}\`)${extraNote}`,
+          fields: [
+            { name: 'Item ID',    value: `\`${catalogItem.ItemId}\``,  inline: true  },
+            { name: 'Class',      value: catalogItem.ItemClass,         inline: true  },
+            { name: 'Rarity',     value: rarity,                        inline: true  },
+            { name: 'Granted by', value: interaction.user.tag,          inline: false },
+          ],
+          footer: { text: `Catalog: ${CATALOG_VERSION}` },
+          timestamp: new Date().toISOString(),
+        }]});
+
       } catch (err) {
-        return interaction.editReply({ embeds: [errorEmbed(`Failed to unlock maps: ${err.message}`)] });
+        return interaction.editReply({ embeds: [{
+          color: 0xED4245,
+          title: '❌  Grant Failed',
+          description: `Could not grant **${catalogItem.DisplayName}** to **${resolvedName}**.\n\n**Error:** ${err.message}`,
+        }]});
       }
 
-      return interaction.editReply({
-        embeds: [new EmbedBuilder()
-          .setColor(0x9B59B6)
-          .setTitle('🗺️  All Maps Unlocked!')
-          .setDescription(`Unlocked **${maps.length} maps** and all perks for ${targetLabel}.\nThey'll see the changes next time they load the game.`)
-          .addFields(
-            { name: '🗺️ Maps Unlocked', value: maps.map(m => `\`${m}\``).join(', '), inline: false },
-            { name: '👤 Granted by', value: interaction.user.username, inline: true },
-          )
-          .setTimestamp()],
-      });
-    }
+    } else {
 
-    // ── Grant Owner ────────────────────────────────────────────
-    if (sub === 'owner') {
+      // Revoke
       try {
-        await grantOwnerStatus(playfabId);
-      } catch (err) {
-        return interaction.editReply({ embeds: [errorEmbed(`Failed to grant owner status: ${err.message}`)] });
-      }
+        const inv      = await getUserInventory(playfabId);
+        const existing = (inv.Inventory || []).find(i => i.ItemId.toLowerCase() === itemId);
 
-      return interaction.editReply({
-        embeds: [new EmbedBuilder()
-          .setColor(0xFFD700)
-          .setTitle('👑  Owner Status Granted!')
-          .setDescription(`${targetLabel} is now an **Owner** in Zombie Tower Defence.\nThey'll have access to the Owner Panel in-game on next load.`)
-          .addFields({ name: '👤 Granted by', value: interaction.user.username, inline: true })
-          .setTimestamp()],
-      });
+        if (!existing) {
+          return interaction.editReply({ embeds: [{
+            color: 0xFEE75C,
+            title: '⚠️  Not In Inventory',
+            description: `**${resolvedName}** doesn't have **${icon} ${catalogItem.DisplayName}**.`,
+          }]});
+        }
+
+        await revokeInventoryItem(playfabId, existing.ItemInstanceId);
+
+        return interaction.editReply({ embeds: [{
+          color: 0xED4245,
+          title: `${icon}  Item Revoked`,
+          description: `Removed **${icon} ${catalogItem.DisplayName}** from **${resolvedName}** (\`${playfabId}\`).`,
+          fields: [
+            { name: 'Item ID',   value: `\`${catalogItem.ItemId}\``, inline: true },
+            { name: 'Revoked by', value: interaction.user.tag,        inline: true },
+          ],
+          footer: { text: `Catalog: ${CATALOG_VERSION}` },
+          timestamp: new Date().toISOString(),
+        }]});
+
+      } catch (err) {
+        return interaction.editReply({ embeds: [{
+          color: 0xED4245,
+          title: '❌  Revoke Failed',
+          description: `Could not revoke **${catalogItem.DisplayName}** from **${resolvedName}**.\n\n**Error:** ${err.message}`,
+        }]});
+      }
     }
   },
 };

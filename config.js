@@ -10,7 +10,7 @@ module.exports = {
     .addSubcommand(s => s.setName('view').setDescription('View current bot configuration'))
     .addSubcommand(s =>
       s.setName('set-admin-role')
-        .setDescription('Add an Admin role (full access: ban, grant items, set stats)')
+        .setDescription('Add an Admin role (full access: ban, moderate players)')
         .addRoleOption(o => o.setName('role').setDescription('Role to make Admin').setRequired(true))
     )
     .addSubcommand(s =>
@@ -30,7 +30,7 @@ module.exports = {
     )
     .addSubcommand(s =>
       s.setName('set-catalog')
-        .setDescription('Set the default PlayFab catalog version for item grants')
+        .setDescription('Set the default PlayFab catalog version')
         .addStringOption(o => o.setName('version').setDescription('Catalog version name').setRequired(true))
     )
     .addSubcommand(s => s.setName('reset').setDescription('Reset all bot config for this server')),

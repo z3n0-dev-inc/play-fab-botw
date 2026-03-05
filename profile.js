@@ -1,90 +1,75 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { getLink }          = require('./db');
-const { getPlayerProfile, getUserData, getUserInventory } = require('./playfab');
-const { errorEmbed }       = require('./embeds');
-const { requirePermission } = require('./permissions');
+const { SlashCommandBuilder }                    = require('discord.js');
+const { getLink }                                = require('./db');
+const { getPlayerProfile, getPlayerStatistics }  = require('./playfab');
+const { profileEmbed, errorEmbed }               = require('./embeds');
+const { hasPermission }                          = require('./permissions');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('profile')
-    .setDescription('View your ZTD profile')
-    .addUserOption(o => o.setName('user').setDescription('Discord user (blank = yourself)').setRequired(false))
-    .addStringOption(o => o.setName('playfab_id').setDescription('Or by PlayFab ID [MOD]').setRequired(false)),
+    .setDescription('View a PlayFab player profile')
+    .addUserOption(o =>
+      o.setName('user')
+        .setDescription('View another player\'s profile (Moderator / Admin only)')
+        .setRequired(false)
+    )
+    .addStringOption(o =>
+      o.setName('playfab_id')
+        .setDescription('Look up directly by PlayFab ID (Moderator / Admin only)')
+        .setRequired(false)
+    ),
 
   async execute(interaction) {
     const targetUser = interaction.options.getUser('user');
     const directId   = interaction.options.getString('playfab_id');
 
-    if (directId) requirePermission(interaction, 'MOD');
-    if (targetUser && targetUser.id !== interaction.user.id) requirePermission(interaction, 'MOD');
+    // Viewing someone else requires MOD or higher
+    const viewingOther = directId || (targetUser && targetUser.id !== interaction.user.id);
+    if (viewingOther && !hasPermission(interaction, 'MOD')) {
+      return interaction.reply({
+        embeds: [errorEmbed('You need the **Moderator** or **Admin** role to view other players\' profiles.')],
+        ephemeral: true,
+      });
+    }
 
     await interaction.deferReply({ ephemeral: true });
 
-    let playfabId, ownerLabel;
+    let playfabId;
+
     if (directId) {
-      playfabId  = directId.trim().toUpperCase();
-      ownerLabel = `\`${playfabId}\``;
+      playfabId = directId.trim().toUpperCase();
     } else {
       const who  = targetUser || interaction.user;
       const link = getLink(who.id);
       if (!link) {
         return interaction.editReply({
-          embeds: [errorEmbed(targetUser
-            ? `${targetUser.username} hasn't linked their account.`
-            : `You haven't linked yet — use **/link** first!`)],
+          embeds: [errorEmbed(
+            targetUser
+              ? `${targetUser.username} hasn't linked their PlayFab account yet.`
+              : `You haven't linked your account yet — use **/link** to get started.`
+          )],
         });
       }
-      playfabId  = link.playfabId;
-      ownerLabel = who.username;
+      playfabId = link.playfabId;
     }
 
-    const [profileRes, dataRes, inventoryRes] = await Promise.allSettled([
+    const [profileResult, statsResult] = await Promise.allSettled([
       getPlayerProfile(playfabId),
-      getUserData(playfabId),
-      getUserInventory(playfabId),
+      getPlayerStatistics(playfabId),
     ]);
 
-    if (profileRes.status === 'rejected') {
-      return interaction.editReply({ embeds: [errorEmbed(`Couldn't fetch profile: ${profileRes.reason.message}`)] });
+    if (profileResult.status === 'rejected') {
+      return interaction.editReply({
+        embeds: [errorEmbed(`Could not fetch profile for \`${playfabId}\`.\n${profileResult.reason.message}`)],
+      });
     }
 
-    const profile   = profileRes.value?.PlayerProfile;
-    const data      = dataRes.status     === 'fulfilled' ? dataRes.value?.Data        : null;
-    const inventory = inventoryRes.status === 'fulfilled' ? inventoryRes.value?.Inventory : [];
-
-    const displayName  = profile?.DisplayName || ownerLabel;
-    const lastLogin    = profile?.LastLogin ? `<t:${Math.floor(new Date(profile.LastLogin).getTime()/1000)}:R>` : 'Unknown';
-    const bannedUntil  = profile?.BannedUntil ? new Date(profile.BannedUntil) : null;
-    const isBanned     = bannedUntil && bannedUntil > new Date();
-    const isOwner      = data?.IsOwner?.Value === 'true';
-    const coins        = data?.Coins?.Value     ? parseInt(data.Coins.Value)    : 0;
-    const bestWave     = data?.BestWave?.Value  ? parseInt(data.BestWave.Value) : 0;
-    const totalKills   = data?.TotalKills?.Value? parseInt(data.TotalKills.Value): 0;
-    const ownedTowers  = data?.OwnedTowers?.Value  ? JSON.parse(data.OwnedTowers.Value)  : ['gunner','archer'];
-    const unlockedMaps = data?.UnlockedMaps?.Value ? JSON.parse(data.UnlockedMaps.Value) : ['graveyard'];
-    const cosmetics    = (inventory || []).map(i => i.DisplayName || i.ItemId).filter(Boolean);
-
-    const embed = new EmbedBuilder()
-      .setColor(isOwner ? 0xFFD700 : isBanned ? 0xFF4500 : 0x00B4D8)
-      .setTitle(`${isOwner ? '👑' : '🧟'} ${displayName}`)
-      .setFooter({ text: `PlayFab ID: ${playfabId}` })
-      .setTimestamp();
-
-    embed.addFields(
-      { name: '🕐 Last Seen', value: lastLogin, inline: true },
-      { name: '⚡ Status', value: isOwner ? '👑 Owner' : isBanned ? `⛔ Banned` : '✅ Active', inline: true },
-    );
-    embed.addFields(
-      { name: '💰 Coins',      value: coins.toLocaleString(),      inline: true },
-      { name: '🌊 Best Wave',  value: String(bestWave),            inline: true },
-      { name: '💀 Total Kills',value: totalKills.toLocaleString(), inline: true },
-    );
-    embed.addFields(
-      { name: `🏰 Towers (${ownedTowers.length})`,     value: ownedTowers.join(', ')  || 'None', inline: false },
-      { name: `🗺️ Maps (${unlockedMaps.length})`,      value: unlockedMaps.join(', ') || 'None', inline: false },
-      { name: `🎨 Cosmetics (${cosmetics.length})`,    value: cosmetics.length ? cosmetics.join(', ') : 'None', inline: false },
-    );
-
-    return interaction.editReply({ embeds: [embed] });
+    return interaction.editReply({
+      embeds: [profileEmbed(
+        playfabId,
+        profileResult.value,
+        statsResult.status === 'fulfilled' ? (statsResult.value?.Statistics ?? []) : [],
+      )],
+    });
   },
 };
