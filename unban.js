@@ -1,22 +1,20 @@
-const { SlashCommandBuilder }        = require('discord.js');
-const { getLink }                    = require('./db');
-const { getUserBans, revokeBans }    = require('./playfab');
-const { successEmbed, errorEmbed }   = require('./embeds');
-const { requirePermission }          = require('./permissions');
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { getLink } = require('./db');
+const { getUserBans, revokeBans } = require('./playfab');
+const { errorEmbed, C, FOOTER } = require('./embeds');
+const { requirePermission } = require('./permissions');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('unban')
     .setDescription('Remove a PlayFab ban [MOD]')
     .addSubcommand(s =>
-      s.setName('user')
-        .setDescription('Unban a linked Discord user')
-        .addUserOption(o => o.setName('target').setDescription('Discord user to unban').setRequired(true))
+      s.setName('user').setDescription('Unban a linked Discord user')
+        .addUserOption(o => o.setName('target').setDescription('User to unban').setRequired(true))
     )
     .addSubcommand(s =>
-      s.setName('id')
-        .setDescription('Unban by PlayFab ID directly')
-        .addStringOption(o => o.setName('playfab_id').setDescription('PlayFab Player ID').setRequired(true))
+      s.setName('id').setDescription('Unban by PlayFab ID')
+        .addStringOption(o => o.setName('playfab_id').setDescription('PlayFab ID').setRequired(true))
     ),
 
   async execute(interaction) {
@@ -29,42 +27,31 @@ module.exports = {
     if (sub === 'user') {
       const target = interaction.options.getUser('target');
       const link   = getLink(target.id);
-      if (!link) {
-        return interaction.editReply({
-          embeds: [errorEmbed(`${target.username} hasn't linked their PlayFab account.\nUse \`/unban id\` with their PlayFab ID instead.`)],
-        });
-      }
+      if (!link) return interaction.editReply({ embeds: [errorEmbed(`**${target.username}** hasn't linked their account\nuse \`/unban id\` instead`)] });
       playfabId   = link.playfabId;
-      targetLabel = `${target.username} (\`${playfabId}\`)`;
+      targetLabel = `${target.username} · \`${playfabId}\``;
     } else {
       playfabId   = interaction.options.getString('playfab_id').trim().toUpperCase();
       targetLabel = `\`${playfabId}\``;
     }
 
     let bansData;
-    try {
-      bansData = await getUserBans(playfabId);
-    } catch (err) {
-      return interaction.editReply({ embeds: [errorEmbed(`Couldn't fetch bans: ${err.message}`)] });
-    }
+    try { bansData = await getUserBans(playfabId); }
+    catch (e) { return interaction.editReply({ embeds: [errorEmbed(`couldn't fetch bans: ${e.message}`)] }); }
 
-    const activeBans = (bansData?.BanData ?? []).filter(b => b.Active);
-    if (!activeBans.length) {
-      return interaction.editReply({ embeds: [errorEmbed(`${targetLabel} has no active bans on PlayFab.`)] });
-    }
+    const active = (bansData?.BanData ?? []).filter(b => b.Active);
+    if (!active.length) return interaction.editReply({ embeds: [errorEmbed(`**${targetLabel}** has no active bans`)] });
 
-    try {
-      await revokeBans(activeBans.map(b => b.BanId));
-    } catch (err) {
-      return interaction.editReply({ embeds: [errorEmbed(`Failed to revoke bans: ${err.message}`)] });
-    }
+    try { await revokeBans(active.map(b => b.BanId)); }
+    catch (e) { return interaction.editReply({ embeds: [errorEmbed(`failed to revoke: ${e.message}`)] }); }
 
     return interaction.editReply({
-      embeds: [successEmbed(
-        'Player Unbanned',
-        `Removed ${activeBans.length} ban(s) for ${targetLabel}.\n\n` +
-        `**Unbanned by:** ${interaction.user.username}`
-      )],
+      embeds: [new EmbedBuilder()
+        .setColor(C.green)
+        .setTitle('✓  ban removed')
+        .setDescription(`**${targetLabel}**\n${active.length} ban(s) revoked`)
+        .addFields({ name: 'by', value: interaction.user.tag, inline: true })
+        .setFooter(FOOTER).setTimestamp()],
     });
   },
 };

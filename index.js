@@ -36,6 +36,15 @@ for (const file of commandFiles) {
 
 // Handle slash commands
 client.on('interactionCreate', async (interaction) => {
+  // Handle autocomplete
+  if (interaction.isAutocomplete()) {
+    const command = client.commands.get(interaction.commandName);
+    if (command?.autocomplete) {
+      try { await command.autocomplete(interaction); } catch { /* ignore autocomplete errors */ }
+    }
+    return;
+  }
+
   if (!interaction.isChatInputCommand()) return;
 
   const command = client.commands.get(interaction.commandName);

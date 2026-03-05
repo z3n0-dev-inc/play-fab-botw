@@ -1,20 +1,17 @@
 /**
- * grant.js — /grant command
+ * grant.js — /grant
  *
- * Grant any item from the ZTD_Cosmetics_v1 catalog to a player.
- * Includes the mod_panel item — granting it gives that player the
- * Moderator Console button in-game.
+ * Grants or revokes any item from ZTD_Cosmetics_v1.
+ * The 'item' option uses Discord autocomplete — all catalog items
+ * (including owner_panel, mod_panel, dev_panel) show up as you type.
  *
- * Usage (Admin only):
- *   /grant playfab_id:<ID> item:<item_id>
- *   /grant user:@Discord   item:<item_id>
- *
- * Item choices are fetched live from the PlayFab catalog so the list
- * always stays in sync with whatever you add there.
+ * /grant item:<id> playfab_id:<id>        — grant by PlayFab ID
+ * /grant item:<id> user:@Discord          — grant by Discord mention
+ * /grant item:<id> playfab_id:<id> revoke:true  — remove item
  */
 
 const { SlashCommandBuilder } = require('discord.js');
-const { getLink }             = require('./db');
+const { getLink } = require('./db');
 const {
   grantItems,
   getUserInventory,
@@ -23,209 +20,199 @@ const {
   getCatalogItems,
 } = require('./playfab');
 const { requirePermission } = require('./permissions');
+const { errorEmbed, warnEmbed, grantEmbed, revokeEmbed } = require('./embeds');
 
-const CATALOG_VERSION = 'ZTD_Cosmetics_v1';
+const CATALOG = 'ZTD_Cosmetics_v1';
 
-// Rarity color map for embed sidebar
-const RARITY_COLORS = {
-  owner:     0xFFD152,
-  legendary: 0xFFD152,
-  rare:      0x3DD6F5,
-  uncommon:  0x50D880,
-  common:    0x546A80,
-};
+// Cache catalog so autocomplete doesn't hammer PlayFab
+let _catalogCache   = null;
+let _catalogCacheAt = 0;
+const CACHE_TTL     = 5 * 60 * 1000; // 5 min
 
-function parseCustomData(raw) {
+async function getCatalogCached() {
+  if (_catalogCache && (Date.now() - _catalogCacheAt) < CACHE_TTL) return _catalogCache;
+  const r   = await getCatalogItems(CATALOG);
+  _catalogCache   = r.Catalog || [];
+  _catalogCacheAt = Date.now();
+  return _catalogCache;
+}
+
+function parseCustom(raw) {
   if (!raw) return {};
   try { return typeof raw === 'string' ? JSON.parse(raw) : raw; }
   catch { return {}; }
 }
 
-function rarityLabel(custom, itemClass) {
-  if (custom.rarity) return custom.rarity.toUpperCase();
-  if (itemClass === 'OwnerTool' || itemClass === 'ModeratorTool') return 'OWNER';
-  if (itemClass === 'OwnerCharacter') return 'OWNER';
-  return 'COSMETIC';
+function rarityOf(custom, itemClass) {
+  if (custom.rarity) return custom.rarity;
+  if (['OwnerTool','OwnerCharacter'].includes(itemClass)) return 'owner';
+  if (itemClass === 'ModeratorTool') return 'owner';
+  if (itemClass === 'DevTool') return 'dev';
+  return 'common';
 }
+
+// Notes shown when granting special panel items
+const PANEL_NOTES = {
+  owner_panel: '👑 player now has the **owner panel** — full console access after next login',
+  mod_panel:   '🛡 player is now a **moderator** — MOD button appears after next login',
+  dev_panel:   '⚙️ player now has the **dev panel** — chaos tools available after next login',
+};
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('grant')
-    .setDescription('Grant a catalog cosmetic (or the Moderator Panel) to a player')
+    .setDescription('Grant or revoke any catalog item (cosmetics, panels, badges, etc.)')
     .addStringOption(o =>
       o.setName('item')
-        .setDescription('Item ID to grant — use /catalog to see all items')
+        .setDescription('Item to grant — type to search, all items show automatically')
         .setRequired(true)
+        .setAutocomplete(true)
     )
     .addStringOption(o =>
       o.setName('playfab_id')
-        .setDescription('Target player\'s PlayFab ID')
+        .setDescription("Target player's PlayFab ID")
         .setRequired(false)
     )
     .addUserOption(o =>
       o.setName('user')
-        .setDescription('Target Discord user (must have linked their account with /link)')
+        .setDescription('Target Discord user (must have linked with /link)')
         .setRequired(false)
     )
     .addBooleanOption(o =>
       o.setName('revoke')
-        .setDescription('Revoke (remove) this item instead of granting it')
+        .setDescription('Remove this item instead of granting it')
         .setRequired(false)
     ),
 
+  // ── Autocomplete handler ──────────────────────────────────────
+  async autocomplete(interaction) {
+    const focused = interaction.options.getFocused().toLowerCase();
+    let items = [];
+    try { items = await getCatalogCached(); } catch { return; }
+
+    const choices = items
+      .filter(i =>
+        i.ItemId.toLowerCase().includes(focused) ||
+        i.DisplayName.toLowerCase().includes(focused)
+      )
+      .slice(0, 25) // Discord max
+      .map(i => {
+        const c    = parseCustom(i.CustomData);
+        const icon = c.icon || '📦';
+        return { name: `${icon} ${i.DisplayName}  ·  ${i.ItemId}`, value: i.ItemId };
+      });
+
+    await interaction.respond(choices);
+  },
+
+  // ── Execute ───────────────────────────────────────────────────
   async execute(interaction) {
     requirePermission(interaction, 'ADMIN');
-
     await interaction.deferReply({ ephemeral: true });
 
-    const itemId      = interaction.options.getString('item').trim().toLowerCase();
-    const directId    = interaction.options.getString('playfab_id');
-    const targetUser  = interaction.options.getUser('user');
-    const shouldRevoke = interaction.options.getBoolean('revoke') ?? false;
+    const rawItem    = interaction.options.getString('item').trim().toLowerCase();
+    const directId   = interaction.options.getString('playfab_id');
+    const targetUser = interaction.options.getUser('user');
+    const doRevoke   = interaction.options.getBoolean('revoke') ?? false;
 
-    // ── Resolve PlayFab ID ───────────────────────────────────────────
+    // ── Resolve target ──────────────────────────────────────────
     let playfabId;
     if (directId) {
       playfabId = directId.trim().toUpperCase();
     } else if (targetUser) {
       const link = getLink(targetUser.id);
       if (!link) {
-        return interaction.editReply({ embeds: [{
-          color: 0xED4245,
-          title: '❌  Not Linked',
-          description: `**${targetUser.username}** hasn't linked their PlayFab account.\nAsk them to use **/link**, or provide a \`playfab_id\` directly.`,
-        }]});
+        return interaction.editReply({ embeds: [errorEmbed(
+          `**${targetUser.username}** hasn't linked their account yet — ask them to run **/link** or provide a \`playfab_id\` directly`
+        )] });
       }
       playfabId = link.playfabId;
     } else {
-      return interaction.editReply({ embeds: [{
-        color: 0xED4245,
-        title: '❌  No Target',
-        description: 'You must provide either a `playfab_id` or a `user`.',
-      }]});
+      return interaction.editReply({ embeds: [errorEmbed('you need to provide a `playfab_id` or mention a `user`')] });
     }
 
-    // ── Validate item exists in catalog ────────────────────────────
-    let catalogItem = null;
+    // ── Validate item ────────────────────────────────────────────
+    let catalogItem;
     try {
-      const catalog = await getCatalogItems(CATALOG_VERSION);
-      const items   = catalog.Catalog || [];
-      catalogItem   = items.find(i => i.ItemId.toLowerCase() === itemId);
-    } catch (err) {
-      return interaction.editReply({ embeds: [{
-        color: 0xED4245,
-        title: '❌  Catalog Error',
-        description: `Could not fetch catalog from PlayFab.\n**Error:** ${err.message}`,
-      }]});
+      const all  = await getCatalogCached();
+      catalogItem = all.find(i => i.ItemId.toLowerCase() === rawItem);
+      if (!catalogItem) {
+        const ids = all.map(i => `\`${i.ItemId}\``).join(', ');
+        return interaction.editReply({ embeds: [errorEmbed(
+          `no item \`${rawItem}\` exists in **${CATALOG}**\n\nrun \`/catalog\` to see all items\nvalid IDs: ${ids}`
+        )] });
+      }
+    } catch (e) {
+      return interaction.editReply({ embeds: [errorEmbed(`couldn't load catalog from PlayFab: ${e.message}`)] });
     }
 
-    if (!catalogItem) {
-      return interaction.editReply({ embeds: [{
-        color: 0xED4245,
-        title: '❌  Item Not Found',
-        description: `\`${itemId}\` does not exist in the **${CATALOG_VERSION}** catalog.\n\nUse **/catalog** to see all available items.`,
-      }]});
-    }
-
-    const custom     = parseCustomData(catalogItem.CustomData);
-    const icon       = custom.icon || '📦';
-    const rarity     = rarityLabel(custom, catalogItem.ItemClass);
-    const embedColor = RARITY_COLORS[rarity.toLowerCase()] || RARITY_COLORS.common;
+    const custom    = parseCustom(catalogItem.CustomData);
+    const icon      = custom.icon || '📦';
+    const rarity    = rarityOf(custom, catalogItem.ItemClass);
+    const extraNote = PANEL_NOTES[catalogItem.ItemId] || null;
 
     // ── Get player display name ──────────────────────────────────
-    let resolvedName = playfabId;
+    let targetName = playfabId;
     try {
       const prof = await getPlayerProfile(playfabId);
-      resolvedName = prof?.PlayerProfile?.DisplayName || playfabId;
+      targetName = prof?.PlayerProfile?.DisplayName || playfabId;
     } catch { /* non-fatal */ }
 
-    // ── Grant or Revoke ──────────────────────────────────────────
-    if (!shouldRevoke) {
-
-      // Check for duplicate
+    // ── GRANT ─────────────────────────────────────────────────────
+    if (!doRevoke) {
+      // Dupe check
       try {
-        const inv      = await getUserInventory(playfabId);
-        const existing = (inv.Inventory || []).find(i => i.ItemId.toLowerCase() === itemId);
-        if (existing && !catalogItem.IsStackable) {
-          return interaction.editReply({ embeds: [{
-            color: 0xFEE75C,
-            title: `⚠️  Already Owned`,
-            description: `**${resolvedName}** already has **${icon} ${catalogItem.DisplayName}** in their inventory.`,
-            fields: [{ name: 'Item ID', value: `\`${catalogItem.ItemId}\``, inline: true }],
-          }]});
+        const inv = await getUserInventory(playfabId);
+        const dupe = (inv.Inventory || []).find(i => i.ItemId.toLowerCase() === rawItem);
+        if (dupe && !catalogItem.IsStackable) {
+          return interaction.editReply({ embeds: [warnEmbed(
+            'already owned',
+            `**${targetName}** already has **${icon} ${catalogItem.DisplayName}**`
+          )] });
         }
-      } catch { /* non-fatal — proceed with grant */ }
+      } catch { /* non-fatal */ }
 
-      // Grant
       try {
-        await grantItems(playfabId, [catalogItem.ItemId], CATALOG_VERSION);
-
-        const isModPanel   = catalogItem.ItemId === 'mod_panel';
-        const isOwnerPanel = catalogItem.ItemId === 'owner_panel';
-
-        const extraNote = isModPanel
-          ? '\n\n🛡 **This player now has the Moderator Panel** — they\'ll see the MOD button in-game after their next login.'
-          : isOwnerPanel
-          ? '\n\n👑 **This player now has the Owner Panel** — full owner console access after next login.'
-          : '';
-
-        return interaction.editReply({ embeds: [{
-          color: embedColor,
-          title: `${icon}  Item Granted`,
-          description: `**${icon} ${catalogItem.DisplayName}** → **${resolvedName}** (\`${playfabId}\`)${extraNote}`,
-          fields: [
-            { name: 'Item ID',    value: `\`${catalogItem.ItemId}\``,  inline: true  },
-            { name: 'Class',      value: catalogItem.ItemClass,         inline: true  },
-            { name: 'Rarity',     value: rarity,                        inline: true  },
-            { name: 'Granted by', value: interaction.user.tag,          inline: false },
-          ],
-          footer: { text: `Catalog: ${CATALOG_VERSION}` },
-          timestamp: new Date().toISOString(),
-        }]});
-
-      } catch (err) {
-        return interaction.editReply({ embeds: [{
-          color: 0xED4245,
-          title: '❌  Grant Failed',
-          description: `Could not grant **${catalogItem.DisplayName}** to **${resolvedName}**.\n\n**Error:** ${err.message}`,
-        }]});
+        await grantItems(playfabId, [catalogItem.ItemId], CATALOG);
+        return interaction.editReply({ embeds: [grantEmbed({
+          icon,
+          displayName:   catalogItem.DisplayName,
+          itemId:        catalogItem.ItemId,
+          itemClass:     catalogItem.ItemClass,
+          rarity,
+          targetName,
+          playfabId,
+          grantedBy:     interaction.user.tag,
+          catalogVersion: CATALOG,
+          extraNote,
+        })] });
+      } catch (e) {
+        return interaction.editReply({ embeds: [errorEmbed(`grant failed: ${e.message}`)] });
       }
 
+    // ── REVOKE ────────────────────────────────────────────────────
     } else {
-
-      // Revoke
       try {
-        const inv      = await getUserInventory(playfabId);
-        const existing = (inv.Inventory || []).find(i => i.ItemId.toLowerCase() === itemId);
-
-        if (!existing) {
-          return interaction.editReply({ embeds: [{
-            color: 0xFEE75C,
-            title: '⚠️  Not In Inventory',
-            description: `**${resolvedName}** doesn't have **${icon} ${catalogItem.DisplayName}**.`,
-          }]});
+        const inv  = await getUserInventory(playfabId);
+        const item = (inv.Inventory || []).find(i => i.ItemId.toLowerCase() === rawItem);
+        if (!item) {
+          return interaction.editReply({ embeds: [warnEmbed(
+            'not in inventory',
+            `**${targetName}** doesn't have **${icon} ${catalogItem.DisplayName}**`
+          )] });
         }
-
-        await revokeInventoryItem(playfabId, existing.ItemInstanceId);
-
-        return interaction.editReply({ embeds: [{
-          color: 0xED4245,
-          title: `${icon}  Item Revoked`,
-          description: `Removed **${icon} ${catalogItem.DisplayName}** from **${resolvedName}** (\`${playfabId}\`).`,
-          fields: [
-            { name: 'Item ID',   value: `\`${catalogItem.ItemId}\``, inline: true },
-            { name: 'Revoked by', value: interaction.user.tag,        inline: true },
-          ],
-          footer: { text: `Catalog: ${CATALOG_VERSION}` },
-          timestamp: new Date().toISOString(),
-        }]});
-
-      } catch (err) {
-        return interaction.editReply({ embeds: [{
-          color: 0xED4245,
-          title: '❌  Revoke Failed',
-          description: `Could not revoke **${catalogItem.DisplayName}** from **${resolvedName}**.\n\n**Error:** ${err.message}`,
-        }]});
+        await revokeInventoryItem(playfabId, item.ItemInstanceId);
+        return interaction.editReply({ embeds: [revokeEmbed({
+          icon,
+          displayName:    catalogItem.DisplayName,
+          itemId:         catalogItem.ItemId,
+          targetName,
+          playfabId,
+          revokedBy:      interaction.user.tag,
+          catalogVersion: CATALOG,
+        })] });
+      } catch (e) {
+        return interaction.editReply({ embeds: [errorEmbed(`revoke failed: ${e.message}`)] });
       }
     }
   },
