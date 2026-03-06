@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ZOMBIE TOWER DEFENCE</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Mono:wght@400;700&family=Rajdhani:wght@400;500;600;700&family=Barlow+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+
+<!-- ═══════════════════ MAIN MENU ═══════════════════ -->
+<div id="screen-menu" class="screen active">
+  <canvas id="menuParticles"></canvas>
+  <div class="menu-bg-overlay"></div>
+
+  <!-- LEFT SIDEBAR -->
+  <div class="menu-sidebar">
+    <div class="menu-brand">
+      <div class="skull-icon">💀</div>
+      <h1 class="game-title">
+        <span class="t1">ZOMBIE</span>
+        <span class="t2">TOWER DEFENCE</span>
+      </h1>
+      <p class="game-sub">BUILD · DEFEND · SURVIVE</p>
+      <div style="margin-top:10px;height:1px;background:linear-gradient(90deg,rgba(255,80,0,0.6),rgba(255,150,0,0.3),transparent);box-shadow:0 0 8px rgba(255,100,0,0.4)"></div>
+    </div>
+
+    <nav class="menu-tabs">
+      <button class="mtab active" data-tab="play">▶ PLAY</button>
+      <button class="mtab" data-tab="infinite">∞ INFINITE</button>
+      <button class="mtab" data-tab="editor">🗺 MAP EDITOR</button>
+      <button class="mtab" data-tab="shop">⬡ SHOP</button>
+      <button class="mtab" data-tab="leaderboard">◈ LEADERBOARD</button>
+      <button class="mtab" data-tab="profile">◉ PROFILE</button>
+    </nav>
+
+    <div class="menu-sidebar-footer">
+      <div class="msf-status">
+        <div class="msf-dot"></div>
+        <span id="tickerText">Connecting…</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT CONTENT -->
+  <div class="menu-content" id="menuBody">
+    <!-- PLAY TAB -->
+    <div class="tab active" id="tab-play">
+      <h2 class="tab-title">SELECT MAP</h2>
+      <div class="map-grid" id="mapGrid"></div>
+    </div>
+
+    <!-- INFINITE TAB -->
+    <div class="tab" id="tab-infinite">
+      <h2 class="tab-title">∞ INFINITE MODE <span style="font-size:12px;color:var(--txt2)">HOW FAR CAN YOU GO?</span></h2>
+      <div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap">
+        <div style="flex:1;min-width:220px">
+          <div class="map-card" id="infiniteCard" style="cursor:pointer;max-width:280px">
+            <div class="map-preview"><canvas id="prev-infinite" width="230" height="110"></canvas>
+              <div class="map-badge map-badge-open">∞</div></div>
+            <div class="map-info">
+              <div class="map-name">∞ INFINITE SURVIVAL</div>
+              <div class="map-diff" style="color:var(--txt2);font-size:10px">♾ ENDLESS WAVES</div>
+              <div class="map-waves-chip">🎈 Balloons get harder every round</div>
+              <div class="map-waves" style="margin-top:3px">B.A.D blimps every 40 waves. Beat your record!</div>
+            </div>
+          </div>
+          <button class="td-btn green full" id="btnPlayInfinite" style="margin-top:12px;font-size:18px;padding:14px">▶ START INFINITE</button>
+        </div>
+        <div style="flex:2;min-width:260px">
+          <h3 style="font-family:var(--f-head);color:var(--amber3);margin-bottom:8px">🏆 INFINITE LEADERBOARD</h3>
+          <div id="infiniteLb" style="font-family:var(--f-mono);font-size:11px;color:var(--txt)">Loading…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MAP EDITOR TAB -->
+    <div class="tab" id="tab-editor">
+      <h2 class="tab-title">🗺 MAP EDITOR <span style="font-size:11px;color:var(--txt2)">BETA</span></h2>
+      <div id="editorWrap" style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start">
+        <div>
+          <canvas id="editorCanvas" style="border:2px solid rgba(6,182,212,0.3);cursor:crosshair;display:block"></canvas>
+          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+            <button class="td-btn" id="edClear">🗑 Clear</button>
+            <button class="td-btn green" id="edPlay" disabled>▶ Test Map</button>
+            <button class="td-btn blue" id="edUndo">↩ Undo</button>
+          </div>
+        </div>
+        <div style="min-width:160px">
+          <div class="sp-title">TOOLS</div>
+          <div style="display:flex;flex-direction:column;gap:6px" id="editorTools">
+            <button class="ed-tool active" data-tool="path">🛣 Draw Path</button>
+            <button class="ed-tool" data-tool="erase">🗑 Erase</button>
+            <button class="ed-tool" data-tool="spawn">🟢 Set Spawn</button>
+            <button class="ed-tool" data-tool="end">🔴 Set End</button>
+          </div>
+          <div class="sp-title" style="margin-top:12px">THEME</div>
+          <select id="edTheme" class="td-input" style="width:100%;margin-top:4px">
+            <option value="graveyard">🌿 Graveyard</option>
+            <option value="urban">🏙 Urban</option>
+            <option value="volcanic">🌋 Volcanic</option>
+            <option value="arctic">❄️ Arctic</option>
+          </select>
+          <div class="sp-title" style="margin-top:12px">GRID</div>
+          <div style="font-size:10px;color:var(--txt2);margin-top:4px">
+            Click to draw path tiles.<br>Set spawn (🟢) and end (🔴),<br>then click Test Map!
+          </div>
+          <div id="edStatus" style="margin-top:10px;font-size:10px;color:var(--grn2)"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab" id="tab-shop">
+      <h2 class="tab-title">TOWER SHOP <span class="coins-badge">💰 <span id="shopCoins">0</span></span></h2>
+      <div class="shop-filters">
+        <button class="sf active" data-sf="all">ALL</button>
+        <button class="sf" data-sf="basic">BASIC</button>
+        <button class="sf" data-sf="advanced">ADVANCED</button>
+        <button class="sf" data-sf="special">SPECIAL</button>
+        <button class="sf" data-sf="legendary">LEGENDARY</button>
+      </div>
+      <div class="shop-grid" id="shopGrid"></div>
+    </div>
+
+    <!-- LEADERBOARD TAB -->
+    <div class="tab" id="tab-leaderboard">
+      <h2 class="tab-title">🏆 LIVE LEADERBOARD <span class="live-dot"></span></h2>
+      <div class="lb-tabs">
+        <button class="lbt active" data-lb="HighScore">HIGH SCORE</button>
+        <button class="lbt" data-lb="BestWave">BEST WAVE</button>
+        <button class="lbt" data-lb="TotalKills">TOTAL KILLS</button>
+        <button id="btnRefreshLB" class="lbt" title="Refresh leaderboard" style="margin-left:auto">↻</button>
+      </div>
+      <div id="lbLoginHint" style="display:none;font-family:var(--f-mono);font-size:9px;color:var(--amber3);text-align:center;padding:8px;background:rgba(245,178,21,0.06);border-radius:6px;margin-bottom:8px">
+        ⚠ Log in to appear on the leaderboard!
+      </div>
+      <div id="lbWrap" class="lb-wrap"><p class="lb-loading">Fetching leaderboard…</p></div>
+    </div>
+
+    <!-- PROFILE TAB -->
+    <div class="tab" id="tab-profile">
+      <h2 class="tab-title">PROFILE</h2>
+      <div id="authBox" class="auth-box">
+        <input type="text" id="authUser" placeholder="Username" class="td-input"/>
+        <input type="password" id="authPass" placeholder="Password" class="td-input"/>
+        <div class="auth-btns">
+          <button class="td-btn green" id="btnLogin">LOGIN</button>
+          <button class="td-btn blue" id="btnRegister">REGISTER</button>
+        </div>
+        <p id="authMsg" class="auth-msg"></p>
+      </div>
+      <div id="profilePanel" class="hidden">
+
+        <!-- Level Badge Card -->
+        <div class="profile-level-card">
+          <div class="plc-badge" id="pAcctLevelBadge">1</div>
+          <div class="plc-info">
+            <div class="plc-name-row">
+              <span id="pName" class="plc-name">Survivor</span>
+              <span id="pAcctTitle" class="plc-title">ROOKIE</span>
+            </div>
+            <div class="plc-xp-row">
+              <span id="pXPCurrent" class="plc-xp-cur">0 XP</span>
+              <span id="pXPNeeded" class="plc-xp-need">/ 500</span>
+            </div>
+            <div class="plc-bar-wrap">
+              <div class="plc-bar-fill" id="pXPBar"></div>
+            </div>
+            <div id="pNextUnlock" class="plc-next-unlock"></div>
+          </div>
+        </div>
+
+        <!-- Stats Grid -->
+        <div class="profile-stats-grid">
+          <div class="psg-cell"><div class="psg-val" id="pCoins">0</div><div class="psg-lbl">💰 COINS</div></div>
+          <div class="psg-cell"><div class="psg-val" id="pBestWave">0</div><div class="psg-lbl">🌊 BEST WAVE</div></div>
+          <div class="psg-cell"><div class="psg-val" id="pTotalKills">0</div><div class="psg-lbl">💀 KILLS</div></div>
+          <div class="psg-cell"><div class="psg-val" id="pTowersOwned">0</div><div class="psg-lbl">🗼 TOWERS</div></div>
+          <div class="psg-cell"><div class="psg-val" id="pGamesPlayed">0</div><div class="psg-lbl">🎮 GAMES</div></div>
+          <div class="psg-cell"><div class="psg-val" id="pMapsCompleted">0</div><div class="psg-lbl">🗺 MAPS WON</div></div>
+        </div>
+
+        <!-- Cosmetics -->
+        <div class="cosmetic-section">
+          <h4>YOUR COSMETICS</h4>
+          <div id="cosmeticList" class="cosmetic-inventory"></div>
+        </div>
+        <button class="td-btn red" id="btnLogout">LOGOUT</button>
+      </div>
+    </div>
+  </div>
+
+  </div><!-- /menu-content -->
+</div><!-- /screen-menu -->
+
+<!-- ═══════════════════ GAME SCREEN ═══════════════════ -->
+<div id="screen-game" class="screen">
+
+  <!-- TOP HUD -->
+  <div class="hud-top">
+    <div class="hud-pill">💰 <span id="hudMoney">100</span></div>
+    <div class="hud-pill">❤️ <span id="hudLives">20</span></div>
+    <div class="hud-wave-badge">WAVE <span id="hudWave">1</span></div>
+    <div class="hud-pill">💀 <span id="hudKills">0</span></div>
+    <div class="hud-pill" style="display:none">⭐ <span id="hudScore">0</span></div>
+    <!-- XP strip -->
+    <div class="hud-xp-strip">
+      <span class="hud-xp-level" id="hudAcctLevel">1</span>
+      <div class="hud-xp-info">
+        <span class="hud-xp-title" id="hudAcctTitle">ROOKIE</span>
+        <div class="hud-xp-track">
+          <div class="hud-xp-fill" id="hudXPBar"></div>
+        </div>
+      </div>
+    </div>
+    <div class="hud-controls">
+      <button class="hud-btn pulse-green" id="btnStartWave">⚔ SEND WAVE</button>
+      <button class="hud-btn" id="btnSpeed" title="Change speed (1×→2×→3×→4×)">1×</button>
+      <button class="hud-btn" id="btnAutoWave" title="Auto-send waves" style="background:rgba(0,0,0,0.3)">AUTO</button>
+      <button id="btnToggleLB" title="Toggle Live Leaderboard">🏆 LB</button>
+      <button class="hud-btn danger" id="btnBackMenu">✕</button>
+    </div>
+  </div>
+
+  <!-- GAME LAYOUT -->
+  <div class="game-layout">
+    <!-- CANVAS -->
+    <div class="canvas-wrap" id="canvasWrap">
+      <!-- Corner accent decorations -->
+      <div style="position:absolute;top:8px;left:8px;width:20px;height:20px;border-top:2px solid rgba(255,180,0,0.35);border-left:2px solid rgba(255,180,0,0.35);border-radius:2px 0 0 0;pointer-events:none;z-index:4"></div>
+      <div style="position:absolute;top:8px;right:8px;width:20px;height:20px;border-top:2px solid rgba(255,180,0,0.35);border-right:2px solid rgba(255,180,0,0.35);border-radius:0 2px 0 0;pointer-events:none;z-index:4"></div>
+      <div style="position:absolute;bottom:8px;left:8px;width:20px;height:20px;border-bottom:2px solid rgba(255,180,0,0.35);border-left:2px solid rgba(255,180,0,0.35);border-radius:0 0 0 2px;pointer-events:none;z-index:4"></div>
+      <div style="position:absolute;bottom:8px;right:8px;width:20px;height:20px;border-bottom:2px solid rgba(255,180,0,0.35);border-right:2px solid rgba(255,180,0,0.35);border-radius:0 0 2px 0;pointer-events:none;z-index:4"></div>
+      <canvas id="gameCanvas"></canvas>
+      <div id="dmgLayer"></div>
+      <div id="screenFlash"></div>
+
+      <!-- IN-GAME LEADERBOARD -->
+      <div id="ingameLeaderboard" class="hidden">
+        <div class="igl-header">
+          <div class="igl-title">
+            <div class="igl-live-dot"></div>
+            LIVE SCORES
+          </div>
+          <button class="igl-close" id="btnCloseIGL">✕</button>
+        </div>
+        <div class="igl-body" id="iglBody">
+          <div class="igl-loading">Loading scores…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SIDE PANEL -->
+    <aside class="side-panel">
+      <div class="sp-block">
+        <div class="sp-title">BUILD TOWER</div>
+        <div class="tower-palette" id="towerPalette"></div>
+      </div>
+
+      <div class="sp-block" id="selPanel" style="display:none">
+        <div class="sp-title">SELECTED TOWER</div>
+        <div id="selInfo" class="sel-info"></div>
+        <button class="td-btn green full" id="btnUpgrade">⬆ UPGRADE <span id="upgradePrice"></span></button>
+        <button class="td-btn red full" id="btnSell">💲 SELL</button>
+        <button class="td-btn full" id="btnDeselect">✕ DESELECT</button>
+      </div>
+
+      <div class="sp-block">
+        <div class="sp-title">NEXT WAVE</div>
+        <div id="wavePreview" class="wave-preview"></div>
+      </div>
+
+      <div class="sp-block">
+        <div class="sp-title">TARGET MODE</div>
+        <div class="target-btns">
+          <button class="tgt-btn active" data-tgt="first">FIRST</button>
+          <button class="tgt-btn" data-tgt="last">LAST</button>
+          <button class="tgt-btn" data-tgt="strong">STRONGEST</button>
+          <button class="tgt-btn" data-tgt="close">CLOSEST</button>
+        </div>
+      </div>
+
+      <div class="sp-block hotkey-block">
+        <div class="sp-title">SHORTCUTS</div>
+        <div class="hotkey-list">
+          <div class="hk"><kbd>Space</kbd> Send wave</div>
+          <div class="hk"><kbd>G</kbd> Upgrade</div>
+          <div class="hk"><kbd>S</kbd> Sell</div>
+          <div class="hk"><kbd>U</kbd> Undo place</div>
+          <div class="hk"><kbd>Esc</kbd> Cancel / Deselect</div>
+          <div class="hk"><kbd>1-4</kbd> Target modes</div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- COMBO DISPLAY (hidden) -->
+  <div id="comboDisplay" class="combo-display hidden">
+    <div class="combo-number" id="comboCount">0×</div>
+    <div class="combo-label">COMBO</div>
+    <div class="combo-bar-wrap"><div class="combo-bar-fill" id="comboBar" style="width:100%"></div></div>
+  </div>
+
+  <!-- WAVE ANNOUNCE -->
+  <div id="waveAnnounce" class="wave-announce hidden">
+    <div class="wa-content">
+      <div class="wa-backdrop"></div>
+      <div class="wa-eyebrow" id="waEyebrow">WAVE</div>
+      <div class="wa-number" id="waNum">1</div>
+      <div class="wa-tagline" id="waSub">INCOMING!</div>
+      <div class="wa-bars">
+        <div class="wa-bar"></div><div class="wa-bar"></div><div class="wa-bar"></div>
+        <div class="wa-bar"></div><div class="wa-bar"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOSS BAR -->
+  <div id="bossBar">
+    <div id="bossBarName">
+      <span id="bossBarLabel">👑 BOSS</span>
+      <span id="bossBarHp">—</span>
+    </div>
+    <div id="bossBarTrack"><div id="bossBarFill"></div></div>
+  </div>
+
+  <!-- GAME OVER -->
+  <div id="gameOverScreen" class="fullscreen-overlay hidden">
+    <div class="overlay-box go-box">
+      <div class="go-skull">💀</div>
+      <h2>GAME OVER</h2>
+      <div class="result-grid">
+        <div class="rg-item"><span>Wave</span><strong id="goWave">1</strong></div>
+        <div class="rg-item"><span>Score</span><strong id="goScore">0</strong></div>
+        <div class="rg-item"><span>Kills</span><strong id="goKills">0</strong></div>
+        <div class="rg-item"><span>Coins Earned</span><strong id="goCoins">0</strong></div>
+      </div>
+      <div class="overlay-btns">
+        <button class="td-btn green" id="btnRetry">↺ RETRY</button>
+        <button class="td-btn" id="btnGoMenu">⬅ MENU</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- VICTORY -->
+  <div id="victoryScreen" class="fullscreen-overlay hidden">
+    <div class="overlay-box vic-box">
+      <div class="vic-stars-anim" id="vicStars">⭐⭐⭐</div>
+      <h2 class="vic-title">VICTORY!</h2>
+      <p id="vicMsg">Map complete!</p>
+      <div class="overlay-btns">
+        <button class="td-btn gold" id="btnNextMap">NEXT MAP ▶</button>
+        <button class="td-btn" id="btnVicMenu">⬅ MENU</button>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /screen-game -->
+
+<!-- ═══════════════════ OWNER PANEL ═══════════════════ -->
+
+<!-- 👑 Owner trigger — bottom right -->
+<div id="ownerTrigger" class="owner-trigger hidden">
+  <div class="ot-pulse-ring"></div>
+  <div class="ot-pulse-ring ot-ring-2"></div>
+  <div class="ot-content ot-owner">
+    <span class="ot-crown">👑</span>
+    <span class="ot-label">OWNER</span>
+    <span id="otArrow">▲</span>
+  </div>
+</div>
+
+
+<!-- ══ OWNER PANEL (full access — owner_panel item) ══ -->
+<div id="ownerPanel" class="owner-panel hidden">
+  <div class="op-corner op-tl"></div><div class="op-corner op-tr"></div>
+  <div class="op-corner op-bl"></div><div class="op-corner op-br"></div>
+
+  <div class="op-hdr">
+    <div class="op-hdr-left">
+      <span class="op-hdr-crown">👑</span>
+      <div>
+        <div class="op-hdr-title">OWNER CONSOLE</div>
+        <div class="op-hdr-sub">Zombie Tower Defence</div>
+      </div>
+    </div>
+    <button id="btnCloseOwner" class="op-close">✕</button>
+  </div>
+
+  <div class="op-scroll">
+
+    <!-- Your PlayFab ID -->
+    <div class="op-section">
+      <div class="op-section-label">🪪 YOUR PLAYFAB ID</div>
+      <div class="op-playfab-chip">
+        <span id="opMyIdText">— not logged in —</span>
+        <button class="op-copy-id" id="btnCopyMyId" title="Copy ID">📋</button>
+      </div>
+    </div>
+
+    <!-- Target player -->
+    <div class="op-section">
+      <div class="op-section-label">🎯 TARGET PLAYER ID</div>
+      <input type="text" id="ownerTarget" class="td-input" placeholder="Username or PlayFab ID"/>
+      <div class="op-hint">Enter username or paste PlayFab ID</div>
+      <button class="op-btn blue" style="margin-top:6px" data-oa="lookupPlayer">🔍 Look Up Player</button>
+      <div id="ownerPlayerInfo" class="op-player-info hidden"></div>
+    </div>
+
+    <!-- ── MODERATION ── -->
+    <div class="op-section">
+      <div class="op-section-label">🚨 MODERATION</div>
+      <div class="op-row">
+        <input type="text"   id="ownerBanReason" class="td-input" placeholder="Ban reason" style="flex:1"/>
+      </div>
+      <div class="op-row" style="margin-top:4px">
+        <input type="number" id="ownerBanHours"  class="td-input sm" value="0" min="0" title="0 = permanent"/>
+        <span style="font-family:var(--f-mono);font-size:8px;color:var(--txt2);white-space:nowrap">hrs (0=perm)</span>
+        <button class="op-btn red" data-oa="banPlayer">🔨 Ban</button>
+      </div>
+      <div class="op-cmd-grid" style="margin-top:4px">
+        <button class="op-btn green"  data-oa="unbanPlayer">✅ Unban</button>
+        <button class="op-btn amber"  data-oa="warnPlayer">⚠️ Warn</button>
+        <button class="op-btn purple" data-oa="kickPlayer">👢 Kick</button>
+        <button class="op-btn blue"   data-oa="mutePlayer">🔇 Mute 1h</button>
+      </div>
+    </div>
+
+    <!-- Owner Characters -->
+    <div class="op-section">
+      <div class="op-section-label">🦇 OWNER CHARACTERS</div>
+      <div class="op-hint">Granted via PlayFab inventory — appear in-game instantly</div>
+      <div id="opCosmeticBtns" class="op-cosmetic-list">
+        <div class="op-catalog-loading">📡 Loading PlayFab catalog…</div>
+      </div>
+      <button class="op-btn neon" data-oa="giveOwnerTowers">👑 Give ALL 4 Owner Characters at Once</button>
+    </div>
+
+    <!-- Inventory controls -->
+    <div class="op-section">
+      <div class="op-section-label">🗼 PLAYER INVENTORY</div>
+      <button class="op-btn green" data-oa="giveAllTowers">🗼 Give All Towers (14 towers)</button>
+      <button class="op-btn green" data-oa="unlockAllMaps">🗺 Unlock All 8 Maps</button>
+      <div class="op-row">
+        <input type="number" id="ownerCoinAmt" class="td-input sm" value="10000" min="1"/>
+        <button class="op-btn amber" data-oa="giveCoins">💰 Give Coins</button>
+      </div>
+    </div>
+
+    <!-- In-game live commands -->
+    <div class="op-section" id="opIngame">
+      <div class="op-section-label">⚡ LIVE ROUND COMMANDS</div>
+      <div class="op-row">
+        <input type="number" id="ownerIngameMoney" class="td-input sm" value="9999" min="1"/>
+        <button class="op-btn amber" data-oa="addIngameMoney">💰 Add Money</button>
+      </div>
+      <div class="op-row">
+        <input type="number" id="ownerLivesAmt" class="td-input sm" value="99" min="1"/>
+        <button class="op-btn green" data-oa="setLives">❤️ Set Lives</button>
+      </div>
+      <div class="op-cmd-grid">
+        <button class="op-btn blue"   data-oa="skipWave">⏭ Skip Wave</button>
+        <button class="op-btn blue"   data-oa="godMode">🛡 God Mode</button>
+        <button class="op-btn red"    data-oa="nukeEnemies">☢️ Nuke All</button>
+        <button class="op-btn purple" data-oa="freezeAll">❄️ Freeze All</button>
+        <button class="op-btn purple" data-oa="speedHack">⚡ Speed Hack (→16×)</button>
+        <button class="op-btn gold"   data-oa="maxAllTowers">⬆ Max All Towers</button>
+      </div>
+      <div class="op-section-label" style="margin-top:8px">👹 SPAWN BOSS</div>
+      <div class="op-row">
+        <select id="ownerBossType" class="td-input sm">
+          <option value="boss_zombie_king">👑 Zombie King</option>
+          <option value="boss_undead_titan">🗿 Undead Titan</option>
+          <option value="boss_shadow_lord">🌑 Shadow Lord</option>
+        </select>
+        <button class="op-btn red" data-oa="spawnBoss">👹 Spawn</button>
+      </div>
+    </div>
+
+    <!-- Admin -->
+    <div class="op-section">
+      <div class="op-section-label">⚙ ADMIN</div>
+      <button class="op-btn neon" data-oa="makeOwner">👑 Grant Owner Status</button>
+      <button class="op-btn red"  data-oa="resetPlayer">⚠ Reset Player Data</button>
+    </div>
+
+    <!-- Log -->
+    <div class="op-section">
+      <div class="op-section-label">📋 ACTION LOG</div>
+      <div class="op-log" id="ownerLog">
+        <div class="op-placeholder">— awaiting commands —</div>
+      </div>
+    </div>
+
+  </div><!-- /op-scroll -->
+</div><!-- /ownerPanel -->
+
+<!-- ══ MODERATOR PANEL (mod_panel item — given via /grant in Discord or PlayFab dashboard) ══ -->
+<!-- ══ MODERATOR PANEL ══ -->
+<div id="modPanel" class="owner-panel mod-panel hidden">
+  <div class="op-corner op-tl"></div><div class="op-corner op-tr"></div>
+  <div class="op-corner op-bl"></div><div class="op-corner op-br"></div>
+
+  <div class="op-hdr mod-hdr">
+    <div class="op-hdr-left">
+      <span class="op-hdr-crown">🛡</span>
+      <div>
+        <div class="op-hdr-title">MODERATOR CONSOLE</div>
+        <div class="op-hdr-sub">Zombie Tower Defence</div>
+      </div>
+    </div>
+    <button id="btnCloseMod" class="op-close">✕</button>
+  </div>
+
+  <div class="op-scroll">
+
+    <!-- Your PlayFab ID -->
+    <div class="op-section">
+      <div class="op-section-label">🪪 YOUR PLAYFAB ID</div>
+      <div class="op-hint">Share with owner to receive items via Discord /grant</div>
+      <div class="op-playfab-chip">
+        <span id="modMyIdText">— not logged in —</span>
+        <button class="op-copy-id" id="btnCopyModId" title="Copy ID">📋</button>
+      </div>
+    </div>
+
+    <!-- Target player -->
+    <div class="op-section">
+      <div class="op-section-label">🎯 TARGET PLAYER ID</div>
+      <input type="text" id="modTarget" class="td-input" placeholder="Username or PlayFab ID"/>
+      <div class="op-hint">Enter username or paste PlayFab ID</div>
+      <button class="op-btn blue" style="margin-top:6px" data-mod="lookupPlayer">🔍 Look Up Player</button>
+      <div id="modPlayerInfo" class="op-player-info hidden"></div>
+    </div>
+
+    <!-- ── MODERATION ── -->
+    <div class="op-section">
+      <div class="op-section-label">🚨 MODERATION</div>
+      <div class="op-row">
+        <input type="text"   id="modBanReason" class="td-input" placeholder="Ban reason" style="flex:1"/>
+      </div>
+      <div class="op-row" style="margin-top:4px">
+        <input type="number" id="modBanHours"  class="td-input sm" value="0" min="0" title="0 = permanent"/>
+        <span style="font-family:var(--f-mono);font-size:8px;color:var(--txt2);white-space:nowrap">hrs (0=perm)</span>
+        <button class="op-btn red" data-mod="banPlayer">🔨 Ban</button>
+      </div>
+      <div class="op-cmd-grid" style="margin-top:4px">
+        <button class="op-btn green"  data-mod="unbanPlayer">✅ Unban</button>
+        <button class="op-btn amber"  data-mod="warnPlayer">⚠️ Warn</button>
+        <button class="op-btn purple" data-mod="kickPlayer">👢 Kick</button>
+        <button class="op-btn blue"   data-mod="mutePlayer">🔇 Mute 1h</button>
+      </div>
+    </div>
+
+    <!-- Inventory controls -->
+    <div class="op-section">
+      <div class="op-section-label">🗼 PLAYER INVENTORY</div>
+      <div class="op-row">
+        <input type="number" id="modCoinAmt" class="td-input sm" value="1000" min="1"/>
+        <button class="op-btn amber" data-mod="giveCoins">💰 Give Coins</button>
+      </div>
+    </div>
+
+    <!-- In-game live commands -->
+    <div class="op-section" id="modIngame">
+      <div class="op-section-label">⚡ LIVE ROUND COMMANDS</div>
+      <div class="op-row">
+        <input type="number" id="modIngameMoney" class="td-input sm" value="1000" min="1"/>
+        <button class="op-btn amber" data-mod="addIngameMoney">💰 Add Money</button>
+      </div>
+      <div class="op-row">
+        <input type="number" id="modLivesAmt" class="td-input sm" value="20" min="1"/>
+        <button class="op-btn green" data-mod="setLives">❤️ Set Lives</button>
+      </div>
+      <div class="op-cmd-grid">
+        <button class="op-btn blue"   data-mod="skipWave">⏭ Skip Wave</button>
+        <button class="op-btn red"    data-mod="nukeEnemies">☢️ Nuke All</button>
+        <button class="op-btn purple" data-mod="freezeAll">❄️ Freeze All</button>
+        <button class="op-btn gold"   data-mod="maxAllTowers">⬆ Max Towers</button>
+      </div>
+    </div>
+
+    <!-- Log -->
+    <div class="op-section">
+      <div class="op-section-label">📋 ACTION LOG</div>
+      <div class="op-log" id="modLog">
+        <div class="op-placeholder">— awaiting commands —</div>
+      </div>
+    </div>
+
+  </div>
+</div><!-- /modPanel -->
+
+<!-- ═══════════════════ DEV PANEL ═══════════════════ -->
+
+<!-- ⚙️ Dev trigger — bottom right, above owner trigger -->
+<div id="devTrigger" class="owner-trigger dev-trigger hidden">
+  <div class="ot-pulse-ring dev-ring"></div>
+  <div class="ot-pulse-ring dev-ring ot-ring-2"></div>
+  <div class="ot-content ot-dev">
+    <span class="ot-crown" style="font-size:13px">⚙</span>
+    <span class="ot-label">DEV</span>
+    <span id="devArrow">▲</span>
+  </div>
+</div>
+
+<div id="devPanel" class="owner-panel dev-panel hidden">
+  <div class="dev-scanlines" aria-hidden="true"></div>
+
+  <div class="op-hdr dev-hdr">
+    <div class="op-hdr-left">
+      <div>
+        <div class="op-hdr-title" style="color:#ff4500;font-size:13px;letter-spacing:2px">DEV TOOLS</div>
+        <div class="op-hdr-sub" style="color:#666;font-size:9px">given — not earned</div>
+      </div>
+    </div>
+    <button id="btnCloseDev" class="op-close">✕</button>
+  </div>
+
+  <div class="op-scroll">
+
+    <div class="dev-status-bar">
+      <span class="dev-status-item"><span id="dot-speed"   class="dev-dot dev-dot-off"></span>speed</span>
+      <span class="dev-status-item"><span id="dot-rainbow" class="dev-dot dev-dot-off"></span>rainbow</span>
+      <span class="dev-status-item"><span id="dot-matrix"  class="dev-dot dev-dot-off"></span>matrix</span>
+      <span class="dev-status-item"><span id="dot-disco"   class="dev-dot dev-dot-off"></span>disco</span>
+      <span class="dev-status-item"><span id="dot-invert"  class="dev-dot dev-dot-off"></span>invert</span>
+      <span class="dev-status-item"><span id="dot-bighead" class="dev-dot dev-dot-off"></span>stretch</span>
+      <span class="dev-status-item"><span id="dot-gravity" class="dev-dot dev-dot-off"></span>tilt</span>
+      <span class="dev-status-item"><span id="dot-godmode" class="dev-dot dev-dot-off"></span>god</span>
+      <span class="dev-status-item"><span id="dot-tspam"   class="dev-dot dev-dot-off"></span>spam</span>
+    </div>
+
+    <div class="op-section dev-section">
+      <div class="dev-label">money</div>
+      <div class="op-cmd-grid dev-grid">
+        <button class="op-btn dev-btn amber" data-dev="give9999">+$9,999</button>
+        <button class="op-btn dev-btn amber" data-dev="giveMillion">+$1,000,000</button>
+        <button class="op-btn dev-btn gold"  data-dev="giveInfinite">infinite money</button>
+        <button class="op-btn dev-btn red"   data-dev="setMoney0">go broke</button>
+        <button class="op-btn dev-btn red"   data-dev="stealCoins">steal 500 coins</button>
+      </div>
+    </div>
+
+    <div class="op-section dev-section">
+      <div class="dev-label">enemies</div>
+      <div class="op-cmd-grid dev-grid">
+        <button class="op-btn dev-btn red"    data-dev="spawnHorde">horde (25 + zomg)</button>
+        <button class="op-btn dev-btn red"    data-dev="spawnMoab">spawn moab</button>
+        <button class="op-btn dev-btn red"    data-dev="spawnZomg">spawn zomg</button>
+        <button class="op-btn dev-btn red"    data-dev="spawnBad">spawn bad</button>
+        <button class="op-btn dev-btn red"    data-dev="spawnPhantom">spawn phantom</button>
+        <button class="op-btn dev-btn red"    data-dev="spawnAllBosses">all 4 bosses</button>
+        <button class="op-btn dev-btn neon"   data-dev="rainbowStorm">rainbow storm</button>
+        <button class="op-btn dev-btn blue"   data-dev="nukeAll">nuke all</button>
+        <button class="op-btn dev-btn blue"   data-dev="freezeForever">freeze all</button>
+        <button class="op-btn dev-btn green"  data-dev="unfreeze">unfreeze</button>
+        <button class="op-btn dev-btn purple" data-dev="teleportEnemies">teleport enemies</button>
+      </div>
+    </div>
+
+    <div class="op-section dev-section">
+      <div class="dev-label">towers</div>
+      <div class="op-cmd-grid dev-grid">
+        <button class="op-btn dev-btn gold"  data-dev="maxAllTowers">max all</button>
+        <button class="op-btn dev-btn red"   data-dev="sellAllTowers">sell all</button>
+        <button class="op-btn dev-btn green" data-dev="godMode">god mode</button>
+        <button class="op-btn dev-btn amber" data-dev="cloneArmy">clone army</button>
+      </div>
+      <div class="op-row" style="margin-top:6px;gap:6px;flex-wrap:wrap">
+        <input type="number" id="devWaveNum"  class="td-input sm dev-input" value="5"   min="1" max="99" style="width:52px"/>
+        <button class="op-btn dev-btn blue"  data-dev="skipToWave">skip +n waves</button>
+        <input type="number" id="devLivesNum" class="td-input sm dev-input" value="999" min="0" style="width:60px"/>
+        <button class="op-btn dev-btn green" data-dev="setLives">set lives</button>
+      </div>
+      <div class="op-row" style="margin-top:4px;gap:4px;flex-wrap:wrap">
+        <button class="op-btn dev-btn red"   data-dev="setLives1"  style="flex:1">1 life</button>
+        <button class="op-btn dev-btn amber" data-dev="hyperspeed" style="flex:1">10x speed</button>
+        <button class="op-btn dev-btn blue"  data-dev="slowMo"     style="flex:1">slow mo</button>
+      </div>
+      <div class="dev-spam-box">
+        <div class="dev-spam-label">tower spam</div>
+        <div class="op-row" style="gap:6px;flex-wrap:wrap">
+          <select id="devTowerSpamSelect" class="dev-select">
+            <option value="gunner">gunner</option>
+            <option value="archer">archer</option>
+            <option value="sniper">sniper</option>
+            <option value="rocketeer">rocketeer</option>
+            <option value="freezer">freezer</option>
+            <option value="flamer">flamethrower</option>
+            <option value="tesla">tesla coil</option>
+            <option value="laser">laser</option>
+            <option value="mortar">mortar</option>
+            <option value="venom">venom</option>
+            <option value="omega">omega cannon</option>
+            <option value="phantom">phantom sniper</option>
+            <option value="temporal">time distorter</option>
+            <option value="reaper">soul reaper</option>
+            <option value="drone_bay">drone bay</option>
+            <option value="apache">apache</option>
+          </select>
+          <button class="op-btn dev-btn gold"  data-dev="placeTowerOnce" style="flex:1">place once</button>
+          <button class="op-btn dev-btn amber" data-dev="towerSpamStart" style="flex:1">start spam</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="op-section dev-section">
+      <div class="dev-label">visuals</div>
+      <div class="op-cmd-grid dev-grid">
+        <button class="op-btn dev-btn neon"   data-dev="rainbow">rainbow</button>
+        <button class="op-btn dev-btn blue"   data-dev="matrix">matrix</button>
+        <button class="op-btn dev-btn purple" data-dev="disco">disco</button>
+        <button class="op-btn dev-btn amber"  data-dev="invert">invert</button>
+        <button class="op-btn dev-btn blue"   data-dev="bigHead">stretch</button>
+        <button class="op-btn dev-btn purple" data-dev="flip">mirror</button>
+        <button class="op-btn dev-btn blue"   data-dev="upsideDown">flip upside down</button>
+        <button class="op-btn dev-btn amber"  data-dev="zoom">zoom</button>
+        <button class="op-btn dev-btn red"    data-dev="earthquake">earthquake</button>
+        <button class="op-btn dev-btn amber"  data-dev="confetti">confetti</button>
+        <button class="op-btn dev-btn blue"   data-dev="flashbang">flashbang</button>
+        <button class="op-btn dev-btn red"    data-dev="screenSmash">crack screen</button>
+        <button class="op-btn dev-btn neon"   data-dev="neonMode">neon mode</button>
+        <button class="op-btn dev-btn purple" data-dev="pixelate">pixel art</button>
+        <button class="op-btn dev-btn blue"   data-dev="gravity">tilt world</button>
+        <button class="op-btn dev-btn blue"   data-dev="antiGravity">anti gravity</button>
+      </div>
+    </div>
+
+    <div class="op-section dev-section">
+      <div class="dev-label">troll</div>
+      <div class="op-cmd-grid dev-grid">
+        <button class="op-btn dev-btn neon"   data-dev="rickroll">rickroll (real music)</button>
+        <button class="op-btn dev-btn red"    data-dev="fakeBan">fake ban</button>
+        <button class="op-btn dev-btn red"    data-dev="fakeGameOver">fake game over</button>
+        <button class="op-btn dev-btn amber"  data-dev="fakeVictory">fake win screen</button>
+        <button class="op-btn dev-btn purple" data-dev="fakeError">fake crash</button>
+        <button class="op-btn dev-btn blue"   data-dev="fakeUpdate">fake update</button>
+        <button class="op-btn dev-btn red"    data-dev="jumpScare">jumpscare</button>
+        <button class="op-btn dev-btn amber"  data-dev="spamToast">spam notifications</button>
+      </div>
+    </div>
+
+    <div class="op-section dev-section">
+      <div class="dev-label">cleanup</div>
+      <div class="op-row" style="gap:6px">
+        <button class="op-btn dev-btn green" data-dev="resetAllEffects" style="flex:1">reset everything</button>
+        <button class="op-btn dev-btn red"   data-dev="nukeAccount"     style="flex:1">nuke my account</button>
+      </div>
+    </div>
+
+    <div class="op-section dev-section">
+      <div class="dev-label">log</div>
+      <div class="op-log dev-log" id="devLog">
+        <div class="dev-placeholder">no activity</div>
+      </div>
+    </div>
+
+  </div>
+</div><!-- /devPanel -->
+
+<script src="playfab.js"></script>
+<script src="maps.js"></script>
+<script src="towers.js"></script>
+<script src="enemies.js"></script>
+<script src="game.js"></script>
+<script src="ui.js"></script>
+<script src="owner.js"></script>
+<script src="dev.js"></script>
+<script src="main.js"></script>
+</body>
+</html>
